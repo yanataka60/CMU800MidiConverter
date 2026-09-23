@@ -48,12 +48,12 @@ https://daimonsoft.info/argo/download.html
 #### 主旋律優先(Melody Priority)
 　同時に鳴る音が6物理CHを超える場合に、高い音を主旋律候補として優先的に残す機能です。
 
-　CMU-800は6CHあるので最大6重和音出せますが、複数のパートや伴奏がある曲で6音以上の音がある場合に高い音の方が主旋律だろうと判断して残す機能です。
+　CMU-800は6物理CHあるので最大6重和音出せますが、複数のパートや伴奏がある曲で6音以上の音を同時に鳴らす必要がある場合に高い音の方が主旋律だろうと判断して残す機能です。
 
 　ただし、最高音だから主旋律とは限りませんので万能ではありません。
 
 #### Native Rhythm v4(オプション)
-　以下のMIDIノート番号(GM音源)の場合リズムセクションと判断してCMU-800のリズム音に割り振る機能です。
+　以下のMIDIノート番号(GM音源)の場合リズムセクションと判断してCMU-800の内蔵リズム音に割り振る機能です。
 
 　リズムセクションを含まない曲では効果はありません。
 
@@ -66,3 +66,14 @@ https://daimonsoft.info/argo/download.html
 |CY|49(CR1),57(CR2),51,52,53,55,59|
 |OH|46(OH)|
 |CH|42(CH)|
+
+## 謝辞
+　MIDIデータおよびCMUデータの解析に以下の資料、プログラムを使わせていただきました。ありがとうございました。
+
+・kuran_kuran様のサイト「アルゴの記憶」
+
+https://daimonsoft.info/argo/main.html#argo
+
+・えむこま様のCMU-800PLAYER、mid2cmu、cmuadd
+
+https://github.com/mkomakonkon/MZ-2000/tree/master/misc/CMU-800
