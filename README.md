@@ -13,7 +13,7 @@ https://daimonsoft.info/argo/download.html
 
 　簡単に使うにはMIDI DATA(入力)にMIDIファイルをドロップして変換開始ボタンを押し、出来上がったmztファイルをCMU-800PLAYERに読み込ませるだけです。
 
-![Converter](https://github.com/yanataka60/CMU800MidiConverter/blob/main/photo/start.png)
+![Converter](https://github.com/yanataka60/CMU800MidiConverter/blob/main/Pictures/start.png)
 
 
 ### MIDI DATA(入力)
