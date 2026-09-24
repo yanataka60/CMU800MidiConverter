@@ -47,8 +47,9 @@ type
     edtBase: TEdit;
     lblQuant: TLabel;
     spnQuant: TSpinEdit;
+    btnResetSteps: TButton;
     chkVelocityGate: TCheckBox;
-    chkHarmonyBoost: TCheckBox;
+    chkRoleVoices: TCheckBox;
     chkMelodyPriority: TCheckBox;
     chkNativeRhythmV3: TCheckBox;
     btnConvert: TButton;
@@ -60,11 +61,12 @@ type
     procedure btnInputClick(Sender: TObject);
     procedure btnOutputClick(Sender: TObject);
     procedure btnConvertClick(Sender: TObject);
+    procedure btnResetStepsClick(Sender: TObject);
     procedure edtInputExit(Sender: TObject);
   private
     FDivision: Integer;
     FNotes: TList<TMidiNote>;
-    FInputDir, FOutputDir: string;
+    FInputDir: string;
     procedure WMDropFiles(var Msg: TWMDropFiles); message WM_DROPFILES;
     function SettingsFileName: string;
     function ValidFolderFromText(const S: string): string;
@@ -128,16 +130,17 @@ begin
   SetWindowRgn(btnInput.Handle, CreateRoundRectRgn(0, 0, btnInput.Width + 1, btnInput.Height + 1, 14, 14), True);
   SetWindowRgn(btnOutput.Handle, CreateRoundRectRgn(0, 0, btnOutput.Width + 1, btnOutput.Height + 1, 14, 14), True);
   SetWindowRgn(btnConvert.Handle, CreateRoundRectRgn(0, 0, btnConvert.Width + 1, btnConvert.Height + 1, 18, 18), True);
+  btnResetSteps.Font.Size := 8;
   chkNativeRhythmV3.Checked := True;
+  chkVelocityGate.Checked := True;
+  chkRoleVoices.Checked := False;
   chkMelodyPriority.Checked := True;
-  chkHarmonyBoost.Checked := False;
   FNotes := TList<TMidiNote>.Create;
   OpenDialog.Filter := 'Standard MIDI File (*.mid;*.midi)|*.mid;*.midi|All files (*.*)|*.*';
   SaveDialog.Filter := 'MZ tape image (*.mzt)|*.mzt|CMU-800 raw song data (*.cmu)|*.cmu|Binary file (*.bin)|*.bin';
   SaveDialog.DefaultExt := 'mzt';
   SaveDialog.FilterIndex := 1;
-  edtBase.Text := '337D'; spnQuant.Value := 24;
-  chkVelocityGate.Checked := False;
+  edtBase.Text := '337D'; spnQuant.Value := 44;
   LoadSettings;
   DragAcceptFiles(Handle,True);
 end;
@@ -258,22 +261,33 @@ begin
   Ini:=TIniFile.Create(SettingsFileName);
   try
     FInputDir:=Ini.ReadString('Folders','Input','');
-    FOutputDir:=Ini.ReadString('Folders','Output','');
+    chkVelocityGate.Checked:=Ini.ReadBool('Options','VelocityGate',True);
+    chkRoleVoices.Checked:=Ini.ReadBool('Options','RoleVoices',False);
+    chkMelodyPriority.Checked:=Ini.ReadBool('Options','MelodyPriority',True);
+    chkNativeRhythmV3.Checked:=Ini.ReadBool('Options','NativeRhythmV4',True);
+    spnQuant.Value:=EnsureRange(Ini.ReadInteger('Options','StepsPerQuarter',44),
+      spnQuant.MinValue,spnQuant.MaxValue);
   finally Ini.Free; end;
-  if DirectoryExists(FInputDir) then OpenDialog.InitialDir:=FInputDir else FInputDir:='';
-  if DirectoryExists(FOutputDir) then SaveDialog.InitialDir:=FOutputDir else FOutputDir:='';
+  if not DirectoryExists(FInputDir) then
+    FInputDir := ExtractFilePath(ParamStr(0));
+  OpenDialog.InitialDir := FInputDir;
+  SaveDialog.InitialDir := FInputDir;
 end;
 
 procedure TMainForm.SaveSettings;
 var Ini:TIniFile;
 begin
   if edtInput.Text<>'' then FInputDir:=ExtractFilePath(ExpandFileName(edtInput.Text));
-  if edtOutput.Text<>'' then FOutputDir:=ExtractFilePath(ExpandFileName(edtOutput.Text));
   try
     Ini:=TIniFile.Create(SettingsFileName);
     try
       Ini.WriteString('Folders','Input',FInputDir);
-      Ini.WriteString('Folders','Output',FOutputDir);
+      Ini.DeleteKey('Folders','Output');
+      Ini.WriteInteger('Options','StepsPerQuarter',spnQuant.Value);
+      Ini.WriteBool('Options','VelocityGate',chkVelocityGate.Checked);
+      Ini.WriteBool('Options','RoleVoices',chkRoleVoices.Checked);
+      Ini.WriteBool('Options','MelodyPriority',chkMelodyPriority.Checked);
+      Ini.WriteBool('Options','NativeRhythmV4',chkNativeRhythmV3.Checked);
     finally Ini.Free; end;
   except
     { Do not prevent application shutdown if settings cannot be written. }
@@ -289,8 +303,7 @@ begin
   FInputDir := ExtractFilePath(edtInput.Text);
   OpenDialog.InitialDir := FInputDir;
 
-  FOutputDir := FInputDir;
-  SaveDialog.InitialDir := FOutputDir;
+  SaveDialog.InitialDir := FInputDir;
   edtOutput.Text := IncludeTrailingPathDelimiter(FInputDir) +
     'CMU ' + ChangeFileExt(ExtractFileName(edtInput.Text), '.mzt');
 end;
@@ -332,13 +345,11 @@ begin
   Dir := ValidFolderFromText(edtOutput.Text);
   if Dir <> '' then
     SaveDialog.InitialDir := Dir
-  else if (FOutputDir <> '') and DirectoryExists(FOutputDir) then
-    SaveDialog.InitialDir := FOutputDir;
+  else if (FInputDir <> '') and DirectoryExists(FInputDir) then
+    SaveDialog.InitialDir := FInputDir;
   SaveDialog.FileName := ExtractFileName(edtOutput.Text);
-  if SaveDialog.Execute then begin
+  if SaveDialog.Execute then
     edtOutput.Text := SaveDialog.FileName;
-    FOutputDir:=ExtractFilePath(ExpandFileName(edtOutput.Text));
-  end;
 end;
 
 procedure TMainForm.edtInputExit(Sender: TObject);
@@ -476,11 +487,12 @@ type
   end;
 var
   Sorted: TList<TMidiNote>;
+  MelodyAt: TDictionary<Int64,Integer>;
   Voices: array[0..5] of TList<TAssignedNote>;
   Drums: TDictionary<Int64,Byte>;
   N: TMidiNote;
   A: TAssignedNote;
-  I, J, Part, UnitsPerQuarter, MeasureUnits, Dur, Gate, Dropped, Pitch, BestV, NextPhysicalVoice: Integer;
+  I, J, Part, UnitsPerQuarter, MeasureUnits, Dur, Gate, Dropped, Pitch, BestV, NextPhysicalVoice, NextChordVoice: Integer;
   S, E, Cursor, NextStart, BestEnd: Int64;
   Mask: Byte;
   Keys: TList<Int64>;
@@ -490,6 +502,7 @@ var
   MaxSongPos: Int64;
   MeasureCount, M, Slot, PatternNo, SlotStart, SlotEnd, SlotDur: Integer;
   MelodyInputCount, MelodySameStartRemoved: Integer;
+  PreemptedCount: Integer;
   PercussionInputCount, HarmonyAddedCount: Integer;
   ExtCY51, ExtCY52, ExtCY53, ExtCY55, ExtCY59: Integer;
   Sig: string;
@@ -603,16 +616,59 @@ var
   end;
 
   function ChoosePhysicalVoice(AStart: Int64): Integer;
+  const
+    MelodicVoices: array[0..4] of Integer = (0, 2, 3, 4, 5);
   var K, V: Integer;
   begin
     Result := -1;
-    for K := 0 to 5 do
+    for K := 0 to 4 do
     begin
-      V := (NextPhysicalVoice + K) mod 6;
+      V := MelodicVoices[(NextPhysicalVoice + K) mod 5];
       if VoiceFreeAt(V) <= AStart then
       begin
         Result := V;
-        NextPhysicalVoice := (V + 1) mod 6;
+        NextPhysicalVoice := (NextPhysicalVoice + K + 1) mod 5;
+        Exit;
+      end;
+    end;
+  end;
+
+  function PreemptLowerNote(AStart: Int64; IncomingPitch: Integer; RoleAllocated: Boolean): Integer;
+  var V, FirstVoice, LowPitch: Integer; T: TAssignedNote;
+  begin
+    Result := -1;
+    LowPitch := IncomingPitch;
+    if RoleAllocated then FirstVoice := 2 else FirstVoice := 0;
+    for V := FirstVoice to 5 do
+    begin
+      if V = 1 then Continue; { CH2 remains reserved for bass. }
+      if Voices[V].Count = 0 then Continue;
+      T := Voices[V][Voices[V].Count - 1];
+      if (T.StartPos < AStart) and (T.EndPos > AStart) and (T.Note < LowPitch) then
+      begin
+        Result := V;
+        LowPitch := T.Note;
+      end;
+    end;
+    if Result >= 0 then
+    begin
+      T := Voices[Result][Voices[Result].Count - 1];
+      T.EndPos := AStart;
+      Voices[Result][Voices[Result].Count - 1] := T;
+    end;
+  end;
+
+  function ChooseChordVoice(AStart: Int64): Integer;
+  var K, V: Integer;
+  begin
+    Result := -1;
+    for K := 0 to 3 do
+    begin
+      V := 2 + (NextChordVoice + K) mod 4;
+      if VoiceFreeAt(V) <= AStart then
+      begin
+        Result := V;
+        NextChordVoice := (NextChordVoice + K + 1) mod 4;
         Exit;
       end;
     end;
@@ -653,6 +709,7 @@ var
 
 begin
   Sorted := TList<TMidiNote>.Create;
+  MelodyAt := TDictionary<Int64,Integer>.Create;
   Drums := TDictionary<Int64,Byte>.Create;
   Keys := TList<Int64>.Create;
   Patterns := TList<string>.Create;
@@ -675,12 +732,29 @@ begin
     MeasureUnits := UnitsPerQuarter * 4;
     Log('v0.38: CC64 sustain does not extend physical-voice occupancy; MIDI key-off releases the voice.');
     Dropped := 0;
+    PreemptedCount := 0;
     MelodyInputCount := 0;
     MelodySameStartRemoved := 0;
     NextPhysicalVoice := 0;
+    NextChordVoice := 0;
     PercussionInputCount := 0;
     HarmonyAddedCount := 0;
     ExtCY51 := 0; ExtCY52 := 0; ExtCY53 := 0; ExtCY55 := 0; ExtCY59 := 0;
+
+    if chkRoleVoices.Checked then
+      for I := 0 to Sorted.Count - 1 do
+      begin
+        N := Sorted[I];
+        if IsPercussion(N) or IsBass(N) then Continue;
+        S := QuantizeTick(N.StartTick);
+        if not MelodyAt.TryGetValue(S, J) then
+          MelodyAt.Add(S, I)
+        else if ((N.Channel = 0) and (Sorted[J].Channel <> 0)) or
+                (((N.Channel = 0) = (Sorted[J].Channel = 0)) and
+                 ((N.Note > Sorted[J].Note) or
+                  ((N.Note = Sorted[J].Note) and (N.Velocity > Sorted[J].Velocity)))) then
+          MelodyAt[S] := I;
+      end;
 
     { Phase 1: quantize every MIDI note onto one common absolute CMU timeline. }
     for I := 0 to Sorted.Count - 1 do
@@ -711,10 +785,36 @@ begin
         Continue;
       end;
 
-      { v0.34: CH1..CH6 are six equivalent physical note voices.
-        Rotate through free physical voices instead of forcing each new melody
-        note back onto CH1.  Rests are not assigned here. }
-      Part := ChoosePhysicalVoice(S);
+      { CH2 is reserved for bass.  With role allocation ON, the preferred
+        lead uses CH1 and accompaniment uses CH3..CH6.  OFF retains a
+        five-voice rotation for all non-bass notes. }
+      if IsBass(N) then
+      begin
+        if VoiceFreeAt(1) <= S then Part := 1 else Part := -1;
+      end
+      else if chkRoleVoices.Checked then
+      begin
+        if MelodyAt.TryGetValue(S, J) and (J = I) then
+        begin
+          Part := 0;
+          if VoiceFreeAt(0) > S then
+          begin
+            J := Voices[0].Count - 1;
+            A := Voices[0][J];
+            A.EndPos := S;
+            Voices[0][J] := A;
+          end;
+        end
+        else
+          Part := ChooseChordVoice(S);
+      end
+      else
+        Part := ChoosePhysicalVoice(S);
+      if (Part < 0) and (not IsBass(N)) and chkMelodyPriority.Checked then
+      begin
+        Part := PreemptLowerNote(S, N.Note, chkRoleVoices.Checked);
+        if Part >= 0 then Inc(PreemptedCount);
+      end;
       if Part < 0 then
       begin
         Inc(Dropped);
@@ -732,15 +832,15 @@ begin
     { v0.34: Melody Collision Rescue is unnecessary with physical-voice
       allocation: quantized collisions use separate free voices. }
 
-    { Phase 1b: Melody Priority no longer deletes Chord4.
-      v0.20-v0.23 reduced accompaniment density here, but that prevented the
-      CMU-800 from using its available six melodic voices.  Melody Priority now
-      protects the Melody voice/gate without throwing away valid harmony. }
-
+    if chkRoleVoices.Checked then
+      Log('Role allocation ON: CH1=lead (MIDI CH1 preferred), CH2=Bass, CH3..CH6=accompaniment.')
+    else
+      Log('Role allocation OFF: CH2=Bass, other notes rotate over CH1 and CH3..CH6.');
     if chkMelodyPriority.Checked then
-      Log(Format('6-Physical-Voice diagnostic: CH1=%d, CH2=%d, CH3=%d, CH4=%d, CH5=%d, CH6=%d, dropped=%d',
-        [Voices[0].Count, Voices[1].Count, Voices[2].Count, Voices[3].Count,
-         Voices[4].Count, Voices[5].Count, Dropped]));
+      Log(Format('Melody Priority ON: %d lower notes shortened to retain higher notes.', [PreemptedCount]));
+    Log(Format('Voice counts: CH1=%d, CH2=%d, CH3=%d, CH4=%d, CH5=%d, CH6=%d, dropped=%d',
+      [Voices[0].Count, Voices[1].Count, Voices[2].Count, Voices[3].Count,
+       Voices[4].Count, Voices[5].Count, Dropped]));
 
     { Phase 2: serialize each voice independently.
       Clamp a note at the next note start so overlapping NOTE ON/OFF pairs cannot
@@ -762,9 +862,7 @@ begin
           EmitDuration(Part + 1, 0, A.StartPos - Cursor, 0, Cursor);
 
         Dur := Integer(A.EndPos - A.StartPos);
-        if chkMelodyPriority.Checked and (Part = 0) then
-          Gate := Dur
-        else if chkVelocityGate.Checked then
+        if chkVelocityGate.Checked then
           Gate := Max(1, (Dur * A.Velocity) div 127)
         else
           Gate := Max(1, (Dur * 7) div 8);
@@ -796,10 +894,9 @@ begin
     if ExtCY55 > 0 then Log(Format('Extended CY mapping: MIDI 55 (Splash Cymbal) -> CY : %d hits', [ExtCY55]));
     if ExtCY59 > 0 then Log(Format('Extended CY mapping: MIDI 59 (Ride Cymbal 2) -> CY : %d hits', [ExtCY59]));
     Log(Format('quantized hit positions=%d', [Keys.Count]));
-    if chkHarmonyBoost.Checked then
-      Log(Format('Harmony Boost: ON, added=%d', [HarmonyAddedCount]))
-    else
-      Log('Harmony Boost: OFF');
+    { Harmony Boost is fixed OFF.
+      Its conversion-log output is intentionally disabled.
+      Log(Format('Harmony Boost: OFF, added=%d', [HarmonyAddedCount])); }
     Cursor := 0;
     if chkNativeRhythmV3.Checked then
     begin
@@ -915,8 +1012,7 @@ begin
       Log('v0.29b: v0.27 Intelligent 6-Voice allocation retained; Native Rhythm v4 default ON.')
     else
       Log('v0.29b: Native Rhythm v4 is OFF; compatibility rhythm path is used.');
-    if chkMelodyPriority.Checked then
-      Log('Melody Priority: Melody full gate; Chord4 suppressed during Melody.');
+    if chkVelocityGate.Checked then Log('Velocity GATE: ON for CH1-CH6.');
     if Dropped > 0 then
       Log(Format('%d notes exceeded available CMU voices and were suppressed',
         [Dropped]));
@@ -928,6 +1024,7 @@ begin
     Keys.Free;
     Drums.Free;
     Sorted.Free;
+    MelodyAt.Free;
   end;
 end;
 
@@ -967,6 +1064,11 @@ begin
     Log(Format('Saved MZT: header 128 + data %d bytes; load $%.4x, exec $12A0',[Length(OutB),BaseAddress]))
   else
     Log(Format('Saved raw data: %d bytes; load address $%.4x',[Length(OutB),BaseAddress]));
+end;
+
+procedure TMainForm.btnResetStepsClick(Sender: TObject);
+begin
+  spnQuant.Value := 44;
 end;
 
 procedure TMainForm.btnConvertClick(Sender:TObject);

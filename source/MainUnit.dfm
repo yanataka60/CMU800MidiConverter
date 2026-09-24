@@ -1,7 +1,7 @@
 object MainForm: TMainForm
   Left = 0
   Top = 0
-  Caption = 'CMU-800 MIDI Converter v1.05'
+  Caption = 'CMU-800 MIDI Converter v1.07'
   ClientHeight = 650
   ClientWidth = 920
   Color = clWhitesmoke
@@ -59,7 +59,7 @@ object MainForm: TMainForm
       Width = 34
       Height = 20
       Alignment = taRightJustify
-      Caption = 'v1.05'
+      Caption = 'v1.07'
       Font.Charset = SHIFTJIS_CHARSET
       Font.Color = 7368816
       Font.Height = -15
@@ -220,7 +220,22 @@ object MainForm: TMainForm
         MaxValue = 96
         MinValue = 1
         TabOrder = 5
-        Value = 24
+        Value = 44
+      end
+      object btnResetSteps: TButton
+        Left = 260
+        Top = 206
+        Width = 110
+        Height = 31
+        Caption = #21021#26399#20516#12395#25147#12377
+        Font.Charset = SHIFTJIS_CHARSET
+        Font.Color = 3158064
+        Font.Height = -11
+        Font.Name = 'Segoe UI'
+        Font.Style = []
+        ParentFont = False
+        TabOrder = 6
+        OnClick = btnResetStepsClick
       end
     end
     object grpOptions: TGroupBox
@@ -254,34 +269,35 @@ object MainForm: TMainForm
       end
       object chkVelocityGate: TCheckBox
         Left = 18
-        Top = 39
+        Top = 32
         Width = 265
         Height = 24
         Caption = 'Velocity '#12434' GATE'#38263#12408#21453#26144
+        Checked = True
+        State = cbChecked
         TabOrder = 0
       end
-      object chkHarmonyBoost: TCheckBox
+      object chkRoleVoices: TCheckBox
         Left = 18
-        Top = 72
+        Top = 64
         Width = 265
-        Height = 42
-        Caption = #12495#12540#12514#12491#12540#12434#35036#24375#12377#12427#13#10#65288#31354#12365'CHORD'#12408'1oct'#19979#12434#36861#21152#65289
+        Height = 24
+        Caption = 'CHORD'#20998#38626
         TabOrder = 1
-        WordWrap = True
       end
       object chkMelodyPriority: TCheckBox
         Left = 18
-        Top = 118
+        Top = 96
         Width = 265
         Height = 24
-        Caption = #20027#26059#24459#20778#20808#65288'Melody Priority'#65289
+        Caption = #20027#26059#24459#20778#20808
         Checked = True
         State = cbChecked
         TabOrder = 2
       end
       object chkNativeRhythmV3: TCheckBox
         Left = 18
-        Top = 146
+        Top = 128
         Width = 265
         Height = 40
         Caption = 'Native Rhythm v4'#65288#12458#12503#12471#12519#12531#65289#13#10'CH0 Pattern + CH9 Table'
@@ -292,9 +308,9 @@ object MainForm: TMainForm
       end
       object btnConvert: TButton
         Left = 18
-        Top = 194
+        Top = 180
         Width = 265
-        Height = 48
+        Height = 44
         Caption = #22793#25563#38283#22987
         Default = True
         Font.Charset = SHIFTJIS_CHARSET
@@ -378,7 +394,7 @@ object MainForm: TMainForm
       Width = 163
       Height = 15
       Alignment = taRightJustify
-      Caption = 'CMU-800 MIDI Converter v1.05'
+      Caption = 'CMU-800 MIDI Converter v1.07'
       Font.Charset = SHIFTJIS_CHARSET
       Font.Color = clGray
       Font.Height = -12

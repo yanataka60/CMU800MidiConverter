@@ -9,7 +9,7 @@ uses
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
-  Application.Title := 'CMU-800 MIDI Converter v1.05';
+  Application.Title := 'CMU-800 MIDI Converter v1.10';
   Application.CreateForm(TMainForm, MainForm);
   Application.Run;
 end.
