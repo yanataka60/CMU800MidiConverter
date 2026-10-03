@@ -8,6 +8,9 @@ https://github.com/mkomakonkon/MZ-2000/tree/master/misc/CMU-800/PLAYER
 
 https://daimonsoft.info/argo/download.html
 
+#### (2026.10.3)バグを取ろうとしてエンバクしているところがあるようです。調査、改修に時間が掛かるかもしれません。鳴らないわけではないので改修が終わるまでは現バージョンをお試しぐらいの暖かい気持ちで見守っていただければと思います。
+
+
 ## 使い方
 　Windows 7 SP1 〜 Windows 11で実行できます。好きなフォルダに「CMU800MidiConverter.exe」を置いて使ってください。
 
