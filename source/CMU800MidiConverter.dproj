@@ -1,6 +1,6 @@
 ﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
-        <ProjectGuid>{8F63295F-C54D-4672-80EF-76C09C6A4C4D}</ProjectGuid>
+        <ProjectGuid>{39B33E70-CAEE-4F2A-B97B-37C4A2C5FE3A}</ProjectGuid>
         <MainSource>CMU800MidiConverter.dpr</MainSource>
         <Base>True</Base>
         <Config Condition="'$(Config)'==''">Release</Config>

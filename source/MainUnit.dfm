@@ -1,7 +1,7 @@
 object MainForm: TMainForm
   Left = 0
   Top = 0
-  Caption = 'CMU-800 MIDI Converter v1.08b'
+  Caption = 'CMU-800 MIDI Converter v1.08c'
   ClientHeight = 650
   ClientWidth = 920
   Color = 16119285
@@ -55,7 +55,7 @@ object MainForm: TMainForm
       Width = 58
       Height = 20
       Alignment = taRightJustify
-      Caption = 'v1.08b'
+      Caption = 'v1.08c'
       Font.Charset = SHIFTJIS_CHARSET
       Font.Color = 7368816
       Font.Height = -15
@@ -244,6 +244,8 @@ object MainForm: TMainForm
         Height = 24
         Caption = 'Velocity ‚ð GATE’·‚Ö”½‰f'
         TabOrder = 0
+        Checked = True
+        State = cbChecked
       end
       object chkHarmonyBoost: TCheckBox
         Left = 18
@@ -376,7 +378,7 @@ object MainForm: TMainForm
       Width = 168
       Height = 17
       Alignment = taRightJustify
-      Caption = 'CMU-800 MIDI Converter v1.08b'
+      Caption = 'CMU-800 MIDI Converter v1.08c'
       Font.Charset = SHIFTJIS_CHARSET
       Font.Color = 8421504
       Font.Height = -12

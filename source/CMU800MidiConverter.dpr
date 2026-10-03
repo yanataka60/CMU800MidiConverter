@@ -10,7 +10,7 @@ uses
 begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
-  Application.Title := 'CMU-800 MIDI Converter v1.08b';
+  Application.Title := 'CMU-800 MIDI Converter v1.08c';
   Application.CreateForm(TMainForm, MainForm);
   Application.Run;
 end.

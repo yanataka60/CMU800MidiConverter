@@ -140,16 +140,16 @@ begin
   chkHarmonyBoost.Checked := False;
   FNotes := TList<TMidiNote>.Create;
   FTiming := TMidiTiming.Create;
-  Caption := 'CMU-800 MIDI Converter v1.08b';
-  lblVersion.Caption := 'v1.08b';
-  lblFooter.Caption := 'CMU-800 MIDI Converter v1.08b';
+  Caption := 'CMU-800 MIDI Converter v1.08c';
+  lblVersion.Caption := 'v1.08c';
+  lblFooter.Caption := 'CMU-800 MIDI Converter v1.08c';
   OpenDialog.Filter := 'Standard MIDI File (*.mid;*.midi)|*.mid;*.midi|All files (*.*)|*.*';
   SaveDialog.Filter := 'MZ tape image (*.mzt)|*.mzt|CMU-800 raw song data (*.cmu)|*.cmu|Binary file (*.bin)|*.bin';
   SaveDialog.DefaultExt := 'mzt';
   SaveDialog.FilterIndex := 1;
   edtBase.Text := '337D'; spnSpeed.Value := 100;
   lblHint.Caption := 'MIDIを選択すると変換前後のBPMを表示します。';
-  chkVelocityGate.Checked := False;
+  chkVelocityGate.Checked := True;
   LoadSettings;
   DragAcceptFiles(Handle,True);
 end;
@@ -271,7 +271,7 @@ begin
   try
     FInputDir:=Ini.ReadString('Folders','Input','');
     FOutputDir:=Ini.ReadString('Folders','Output','');
-    chkVelocityGate.Checked := Ini.ReadBool('Options','VelocityGate',False);
+    chkVelocityGate.Checked := Ini.ReadBool('Options','VelocityGate',True);
     chkHarmonyBoost.Checked := Ini.ReadBool('Options','HarmonyBoost',False);
     chkMelodyPriority.Checked := Ini.ReadBool('Options','MelodyPriority',True);
     chkNativeRhythmV3.Checked := Ini.ReadBool('Options','NativeRhythm',True);
