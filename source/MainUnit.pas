@@ -7,7 +7,7 @@ uses
   System.SysUtils, System.UITypes, System.Classes, System.Math, System.IniFiles,
   System.Generics.Collections, System.Generics.Defaults,
   Vcl.Forms, Vcl.Controls, Vcl.StdCtrls, Vcl.Graphics,
-  Vcl.ExtCtrls, Vcl.Dialogs, Vcl.Samples.Spin;
+  Vcl.ExtCtrls, Vcl.Dialogs, Vcl.Samples.Spin, MidiTiming;
 
 type
   TMidiNote = record
@@ -45,11 +45,10 @@ type
     btnOutput: TButton;
     lblBase: TLabel;
     edtBase: TEdit;
-    lblQuant: TLabel;
-    spnQuant: TSpinEdit;
-    btnResetSteps: TButton;
+    lblSpeed: TLabel;
+    spnSpeed: TSpinEdit;
     chkVelocityGate: TCheckBox;
-    chkRoleVoices: TCheckBox;
+    chkHarmonyBoost: TCheckBox;
     chkMelodyPriority: TCheckBox;
     chkNativeRhythmV3: TCheckBox;
     btnConvert: TButton;
@@ -61,12 +60,16 @@ type
     procedure btnInputClick(Sender: TObject);
     procedure btnOutputClick(Sender: TObject);
     procedure btnConvertClick(Sender: TObject);
-    procedure btnResetStepsClick(Sender: TObject);
     procedure edtInputExit(Sender: TObject);
+    procedure TimingChange(Sender: TObject);
+    procedure edtInputChange(Sender: TObject);
   private
     FDivision: Integer;
+    FTiming: TMidiTiming;
+    FPreviewFile: string;
+    FLastNoteTick: Int64;
     FNotes: TList<TMidiNote>;
-    FInputDir: string;
+    FInputDir, FOutputDir: string;
     procedure WMDropFiles(var Msg: TWMDropFiles); message WM_DROPFILES;
     function SettingsFileName: string;
     function ValidFolderFromText(const S: string): string;
@@ -76,7 +79,9 @@ type
     function ReadBE16(const B: TBytes; var P: Integer): Cardinal;
     function ReadBE32(const B: TBytes; var P: Integer): Cardinal;
     function ReadVarLen(const B: TBytes; var P: Integer; Limit: Integer): Cardinal;
-    procedure ParseMidi(const FileName: string);
+    procedure ParseMidi(const FileName: string; ALog: Boolean = True);
+    procedure RefreshTempoPreview;
+    procedure LogTempoMap;
     procedure ParseTrack(const B: TBytes; StartPos, TrackLen: Integer);
     procedure BuildTracks(Tracks: TObjectList<TTrackData>);
     procedure SaveCMUData(const FileName: string; Tracks: TObjectList<TTrackData>;
@@ -130,17 +135,21 @@ begin
   SetWindowRgn(btnInput.Handle, CreateRoundRectRgn(0, 0, btnInput.Width + 1, btnInput.Height + 1, 14, 14), True);
   SetWindowRgn(btnOutput.Handle, CreateRoundRectRgn(0, 0, btnOutput.Width + 1, btnOutput.Height + 1, 14, 14), True);
   SetWindowRgn(btnConvert.Handle, CreateRoundRectRgn(0, 0, btnConvert.Width + 1, btnConvert.Height + 1, 18, 18), True);
-  btnResetSteps.Font.Size := 8;
   chkNativeRhythmV3.Checked := True;
-  chkVelocityGate.Checked := True;
-  chkRoleVoices.Checked := False;
   chkMelodyPriority.Checked := True;
+  chkHarmonyBoost.Checked := False;
   FNotes := TList<TMidiNote>.Create;
+  FTiming := TMidiTiming.Create;
+  Caption := 'CMU-800 MIDI Converter v1.08b';
+  lblVersion.Caption := 'v1.08b';
+  lblFooter.Caption := 'CMU-800 MIDI Converter v1.08b';
   OpenDialog.Filter := 'Standard MIDI File (*.mid;*.midi)|*.mid;*.midi|All files (*.*)|*.*';
   SaveDialog.Filter := 'MZ tape image (*.mzt)|*.mzt|CMU-800 raw song data (*.cmu)|*.cmu|Binary file (*.bin)|*.bin';
   SaveDialog.DefaultExt := 'mzt';
   SaveDialog.FilterIndex := 1;
-  edtBase.Text := '337D'; spnQuant.Value := 44;
+  edtBase.Text := '337D'; spnSpeed.Value := 100;
+  lblHint.Caption := 'MIDIを選択すると変換前後のBPMを表示します。';
+  chkVelocityGate.Checked := False;
   LoadSettings;
   DragAcceptFiles(Handle,True);
 end;
@@ -220,7 +229,7 @@ begin
 end;
 
 destructor TMainForm.Destroy;
-begin FNotes.Free; inherited; end;
+begin FTiming.Free; FNotes.Free; inherited; end;
 
 procedure TMainForm.FormDestroy(Sender:TObject);
 begin
@@ -261,33 +270,32 @@ begin
   Ini:=TIniFile.Create(SettingsFileName);
   try
     FInputDir:=Ini.ReadString('Folders','Input','');
-    chkVelocityGate.Checked:=Ini.ReadBool('Options','VelocityGate',True);
-    chkRoleVoices.Checked:=Ini.ReadBool('Options','RoleVoices',False);
-    chkMelodyPriority.Checked:=Ini.ReadBool('Options','MelodyPriority',True);
-    chkNativeRhythmV3.Checked:=Ini.ReadBool('Options','NativeRhythmV4',True);
-    spnQuant.Value:=EnsureRange(Ini.ReadInteger('Options','StepsPerQuarter',44),
-      spnQuant.MinValue,spnQuant.MaxValue);
+    FOutputDir:=Ini.ReadString('Folders','Output','');
+    chkVelocityGate.Checked := Ini.ReadBool('Options','VelocityGate',False);
+    chkHarmonyBoost.Checked := Ini.ReadBool('Options','HarmonyBoost',False);
+    chkMelodyPriority.Checked := Ini.ReadBool('Options','MelodyPriority',True);
+    chkNativeRhythmV3.Checked := Ini.ReadBool('Options','NativeRhythm',True);
   finally Ini.Free; end;
-  if not DirectoryExists(FInputDir) then
-    FInputDir := ExtractFilePath(ParamStr(0));
-  OpenDialog.InitialDir := FInputDir;
-  SaveDialog.InitialDir := FInputDir;
+  if DirectoryExists(FInputDir) then OpenDialog.InitialDir:=FInputDir else FInputDir:='';
+  if DirectoryExists(FOutputDir) then SaveDialog.InitialDir:=FOutputDir else FOutputDir:='';
 end;
 
 procedure TMainForm.SaveSettings;
 var Ini:TIniFile;
 begin
   if edtInput.Text<>'' then FInputDir:=ExtractFilePath(ExpandFileName(edtInput.Text));
+  if edtOutput.Text<>'' then FOutputDir:=ExtractFilePath(ExpandFileName(edtOutput.Text));
   try
     Ini:=TIniFile.Create(SettingsFileName);
     try
       Ini.WriteString('Folders','Input',FInputDir);
-      Ini.DeleteKey('Folders','Output');
-      Ini.WriteInteger('Options','StepsPerQuarter',spnQuant.Value);
+      Ini.WriteString('Folders','Output',FOutputDir);
       Ini.WriteBool('Options','VelocityGate',chkVelocityGate.Checked);
-      Ini.WriteBool('Options','RoleVoices',chkRoleVoices.Checked);
+      Ini.WriteBool('Options','HarmonyBoost',chkHarmonyBoost.Checked);
       Ini.WriteBool('Options','MelodyPriority',chkMelodyPriority.Checked);
-      Ini.WriteBool('Options','NativeRhythmV4',chkNativeRhythmV3.Checked);
+      Ini.WriteBool('Options','NativeRhythm',chkNativeRhythmV3.Checked);
+      Ini.DeleteKey('Timing','SpeedPercent');
+      Ini.DeleteKey('Timing','ReferenceBPM');
     finally Ini.Free; end;
   except
     { Do not prevent application shutdown if settings cannot be written. }
@@ -303,9 +311,11 @@ begin
   FInputDir := ExtractFilePath(edtInput.Text);
   OpenDialog.InitialDir := FInputDir;
 
-  SaveDialog.InitialDir := FInputDir;
+  FOutputDir := FInputDir;
+  SaveDialog.InitialDir := FOutputDir;
   edtOutput.Text := IncludeTrailingPathDelimiter(FInputDir) +
     'CMU ' + ChangeFileExt(ExtractFileName(edtInput.Text), '.mzt');
+  RefreshTempoPreview;
 end;
 
 procedure TMainForm.WMDropFiles(var Msg:TWMDropFiles);
@@ -345,11 +355,13 @@ begin
   Dir := ValidFolderFromText(edtOutput.Text);
   if Dir <> '' then
     SaveDialog.InitialDir := Dir
-  else if (FInputDir <> '') and DirectoryExists(FInputDir) then
-    SaveDialog.InitialDir := FInputDir;
+  else if (FOutputDir <> '') and DirectoryExists(FOutputDir) then
+    SaveDialog.InitialDir := FOutputDir;
   SaveDialog.FileName := ExtractFileName(edtOutput.Text);
-  if SaveDialog.Execute then
+  if SaveDialog.Execute then begin
     edtOutput.Text := SaveDialog.FileName;
+    FOutputDir:=ExtractFilePath(ExpandFileName(edtOutput.Text));
+  end;
 end;
 
 procedure TMainForm.edtInputExit(Sender: TObject);
@@ -416,23 +428,33 @@ begin
   Status := 0; Tick := 0;
   while P < L do begin
     Delta := ReadVarLen(B,P,L); Inc(Tick,Delta);
+    if P >= L then raise EReadError.Create('Truncated MIDI event');
     if B[P] >= $80 then begin Status := B[P]; Inc(P); end
     else if Status = 0 then raise EReadError.Create('Running status without status byte');
     if Status = $FF then begin
-      if P >= L then Break; MetaType := B[P]; Inc(P); Sz := ReadVarLen(B,P,L);
-      if P + Integer(Sz) > L then raise EReadError.Create('Invalid meta event');
+      if P >= L then raise EReadError.Create('Truncated MIDI meta event'); MetaType := B[P]; Inc(P); Sz := ReadVarLen(B,P,L);
+      if Sz > Cardinal(L-P) then raise EReadError.Create('Invalid meta event');
+      if MetaType = $51 then begin
+        if Sz <> 3 then raise EReadError.Create('Invalid Set Tempo event');
+        FTiming.AddTempo(Tick, (Integer(B[P]) shl 16) or
+          (Integer(B[P+1]) shl 8) or Integer(B[P+2]));
+      end;
       Inc(P,Integer(Sz)); if MetaType = $2F then Break; Status := 0; Continue;
     end;
     if (Status = $F0) or (Status = $F7) then begin
       Sz:=ReadVarLen(B,P,L);
-      if P+Integer(Sz)>L then raise EReadError.Create('Invalid SysEx event');
+      if Sz>Cardinal(L-P) then raise EReadError.Create('Invalid SysEx event');
       Inc(P,Integer(Sz)); Status:=0; Continue;
     end;
+    if P >= L then raise EReadError.Create('Truncated MIDI channel event');
+    if ((Status and $F0) in [$80,$90,$A0,$B0,$E0]) and (P+1 >= L) then
+      raise EReadError.Create('Truncated MIDI channel event');
     Ch := Status and $0F;
     case Status and $F0 of
       $80,$90,$A0,$B0,$E0: begin D1:=B[P]; D2:=B[P+1]; Inc(P,2); end;
       $C0,$D0: begin D1:=B[P]; D2:=0; Inc(P); end;
     else raise EReadError.CreateFmt('Unsupported MIDI status %.2x',[Status]); end;
+    if (D1 > 127) or (D2 > 127) then raise EReadError.Create('Invalid MIDI data byte');
     if (Status and $F0)=$C0 then begin Programs[Ch]:=D1; Continue; end;
     if ((Status and $F0)=$B0) and (D1=64) then begin
       { v0.37: CMU-800 has only six physical note voices. Do not extend a
@@ -455,10 +477,12 @@ begin
   for Ch:=0 to 15 do for N:=0 to 127 do if Active[Ch,N].Used then FinishNote(Ch,N);
 end;
 
-procedure TMainForm.ParseMidi(const FileName: string);
+procedure TMainForm.ParseMidi(const FileName: string; ALog: Boolean);
 var B:TBytes; P, I, Tracks, MidiFormat, HLen, TLen:Integer; FS:TFileStream;
 begin
-  FNotes.Clear; FS:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
+  FPreviewFile := '';
+  FLastNoteTick := 0;
+  FNotes.Clear; FTiming.Clear; FS:=TFileStream.Create(FileName,fmOpenRead or fmShareDenyWrite);
   try
     if FS.Size>MaxInt then raise EReadError.Create('MIDI file is too large');
     SetLength(B,Integer(FS.Size));
@@ -467,15 +491,101 @@ begin
   P:=0; if (Length(B)<14) or (AnsiChar(B[0])<>'M') or (AnsiChar(B[1])<>'T') or
     (AnsiChar(B[2])<>'h') or (AnsiChar(B[3])<>'d') then raise EReadError.Create('Not a Standard MIDI File');
   P:=4; HLen:=ReadBE32(B,P); MidiFormat:=ReadBE16(B,P); Tracks:=ReadBE16(B,P); FDivision:=ReadBE16(B,P);
+  if (MidiFormat > 1) then raise EReadError.Create('Only MIDI format 0 and 1 are supported');
+  if (HLen < 6) or (HLen > Length(B)-8) then raise EReadError.Create('Invalid MIDI header length');
+  if FDivision = 0 then raise EReadError.Create('Invalid MIDI division');
   if (FDivision and $8000)<>0 then raise EReadError.Create('SMPTE time division is not supported');
-  P:=8+HLen; Log(System.SysUtils.Format('MIDI format %d, tracks %d, division %d',[MidiFormat,Tracks,FDivision]));
+  P:=8+HLen; if ALog then Log(System.SysUtils.Format('MIDI format %d, tracks %d, division %d',[MidiFormat,Tracks,FDivision]));
   for I:=0 to Tracks-1 do begin
     if (P+8>Length(B)) or (AnsiChar(B[P])<>'M') or (AnsiChar(B[P+1])<>'T') or
       (AnsiChar(B[P+2])<>'r') or (AnsiChar(B[P+3])<>'k') then raise EReadError.Create('MTrk chunk not found');
     Inc(P,4); TLen:=Integer(ReadBE32(B,P)); if (TLen<0) or (P+TLen>Length(B)) then raise EReadError.Create('Truncated MTrk chunk');
     ParseTrack(B,P,TLen); Inc(P,TLen);
   end;
-  Log(Format('%d note events read',[FNotes.Count]));
+  FTiming.Prepare(FDivision, spnSpeed.Value);
+  for I := 0 to FNotes.Count - 1 do
+    if FNotes[I].EndTick > FLastNoteTick then FLastNoteTick := FNotes[I].EndTick;
+  FPreviewFile := ExpandFileName(FileName);
+  if ALog then begin
+    Log(Format('%d note events; %d Set Tempo events read',
+      [FNotes.Count, FTiming.TempoCount]));
+    Log(Format('Playback speed=%d%%; MIDI tempo changes encoded in durations.',
+      [spnSpeed.Value]));
+    Log('Displayed BPM is the conversion target; actual tempo depends on the PLAYER clock.');
+    LogTempoMap;
+  end;
+end;
+
+procedure TMainForm.edtInputChange(Sender: TObject);
+begin
+  FPreviewFile := '';
+  lblHint.Caption := 'MIDIを選択すると変換前後のBPMを表示します。';
+end;
+
+procedure TMainForm.TimingChange(Sender: TObject);
+begin
+  if FTiming = nil then Exit;
+  if (spnSpeed.Value < 1) or (spnSpeed.Value > 200) then Exit;
+  RefreshTempoPreview;
+end;
+
+procedure TMainForm.RefreshTempoPreview;
+var
+  I, Changes: Integer;
+  P: TTempoPoint;
+  Initial, LowBPM, HighBPM, BPM, Factor: Double;
+begin
+  if (FTiming = nil) or not FileExists(edtInput.Text) then begin
+    FPreviewFile := '';
+    lblHint.Caption := 'MIDIを選択すると変換前後のBPMを表示します。';
+    Exit;
+  end;
+  try
+    if FPreviewFile <> ExpandFileName(edtInput.Text) then
+      ParseMidi(edtInput.Text, False)
+    else
+      FTiming.Prepare(FDivision, spnSpeed.Value);
+    Initial := 120;
+    LowBPM := 1E100;
+    HighBPM := 0;
+    Changes := 0;
+    for I := 0 to FTiming.PointCount - 1 do begin
+      P := FTiming.TempoPoint(I);
+      { Omit overridden same-tick events and events after the last note. }
+      if I < FTiming.PointCount - 1 then
+        if FTiming.TempoPoint(I+1).Tick = P.Tick then Continue;
+      if P.Tick > FLastNoteTick then Break;
+      BPM := 60000000.0 / P.MicrosecondsPerQuarter;
+      if P.Tick = 0 then Initial := BPM else Inc(Changes);
+      LowBPM := Min(LowBPM, BPM);
+      HighBPM := Max(HighBPM, BPM);
+    end;
+    Factor := spnSpeed.Value / 100.0;
+    lblHint.Caption := Format('開始: %.2f → 目標 %.2f BPM（速度 %d%%）',
+      [Initial, Initial * Factor, spnSpeed.Value]) + sLineBreak +
+      Format('曲中: %.2f～%.2f → %.2f～%.2f BPM（変更点 %d）',
+      [LowBPM, HighBPM, LowBPM * Factor, HighBPM * Factor, Changes]);
+  except
+    on E: Exception do begin
+      FPreviewFile := '';
+      lblHint.Caption := 'BPM読み取り不可: ' + E.Message;
+    end;
+  end;
+end;
+
+procedure TMainForm.LogTempoMap;
+var I: Integer; P: TTempoPoint; BPM: Double;
+begin
+  Log('MIDI tempo -> target BPM (MIDI BPM x speed percent):');
+  for I := 0 to FTiming.PointCount - 1 do begin
+    P := FTiming.TempoPoint(I);
+    if I < FTiming.PointCount - 1 then
+      if FTiming.TempoPoint(I+1).Tick = P.Tick then Continue;
+    if P.Tick > FLastNoteTick then Break;
+    BPM := 60000000.0 / P.MicrosecondsPerQuarter;
+    Log(Format('  tick %d: %.2f -> %.2f BPM (%d%%)',
+      [P.Tick, BPM, BPM * spnSpeed.Value / 100.0, spnSpeed.Value]));
+  end;
 end;
 
 procedure TMainForm.BuildTracks(Tracks: TObjectList<TTrackData>);
@@ -487,12 +597,11 @@ type
   end;
 var
   Sorted: TList<TMidiNote>;
-  MelodyAt: TDictionary<Int64,Integer>;
   Voices: array[0..5] of TList<TAssignedNote>;
   Drums: TDictionary<Int64,Byte>;
   N: TMidiNote;
   A: TAssignedNote;
-  I, J, Part, UnitsPerQuarter, MeasureUnits, Dur, Gate, Dropped, Pitch, BestV, NextPhysicalVoice, NextChordVoice: Integer;
+  I, J, Part, UnitsPerQuarter, MeasureUnits, Dur, Gate, Dropped, Pitch, BestV, NextPhysicalVoice: Integer;
   S, E, Cursor, NextStart, BestEnd: Int64;
   Mask: Byte;
   Keys: TList<Int64>;
@@ -502,7 +611,6 @@ var
   MaxSongPos: Int64;
   MeasureCount, M, Slot, PatternNo, SlotStart, SlotEnd, SlotDur: Integer;
   MelodyInputCount, MelodySameStartRemoved: Integer;
-  PreemptedCount: Integer;
   PercussionInputCount, HarmonyAddedCount: Integer;
   ExtCY51, ExtCY52, ExtCY53, ExtCY55, ExtCY59: Integer;
   Sig: string;
@@ -510,9 +618,7 @@ var
 
   function QuantizeTick(ATick: Int64): Int64;
   begin
-    { Exact rational conversion.  Do not first truncate FDivision / units.
-      This is essential for triplets and MIDI divisions not divisible by 24. }
-    Result := (ATick * UnitsPerQuarter + FDivision div 2) div FDivision;
+    Result := FTiming.TickToStep(ATick);
   end;
 
   function RhythmHitBits(ANote, AProgram: Integer): Byte;
@@ -616,59 +722,16 @@ var
   end;
 
   function ChoosePhysicalVoice(AStart: Int64): Integer;
-  const
-    MelodicVoices: array[0..4] of Integer = (0, 2, 3, 4, 5);
   var K, V: Integer;
   begin
     Result := -1;
-    for K := 0 to 4 do
+    for K := 0 to 5 do
     begin
-      V := MelodicVoices[(NextPhysicalVoice + K) mod 5];
+      V := (NextPhysicalVoice + K) mod 6;
       if VoiceFreeAt(V) <= AStart then
       begin
         Result := V;
-        NextPhysicalVoice := (NextPhysicalVoice + K + 1) mod 5;
-        Exit;
-      end;
-    end;
-  end;
-
-  function PreemptLowerNote(AStart: Int64; IncomingPitch: Integer; RoleAllocated: Boolean): Integer;
-  var V, FirstVoice, LowPitch: Integer; T: TAssignedNote;
-  begin
-    Result := -1;
-    LowPitch := IncomingPitch;
-    if RoleAllocated then FirstVoice := 2 else FirstVoice := 0;
-    for V := FirstVoice to 5 do
-    begin
-      if V = 1 then Continue; { CH2 remains reserved for bass. }
-      if Voices[V].Count = 0 then Continue;
-      T := Voices[V][Voices[V].Count - 1];
-      if (T.StartPos < AStart) and (T.EndPos > AStart) and (T.Note < LowPitch) then
-      begin
-        Result := V;
-        LowPitch := T.Note;
-      end;
-    end;
-    if Result >= 0 then
-    begin
-      T := Voices[Result][Voices[Result].Count - 1];
-      T.EndPos := AStart;
-      Voices[Result][Voices[Result].Count - 1] := T;
-    end;
-  end;
-
-  function ChooseChordVoice(AStart: Int64): Integer;
-  var K, V: Integer;
-  begin
-    Result := -1;
-    for K := 0 to 3 do
-    begin
-      V := 2 + (NextChordVoice + K) mod 4;
-      if VoiceFreeAt(V) <= AStart then
-      begin
-        Result := V;
-        NextChordVoice := (NextChordVoice + K + 1) mod 4;
+        NextPhysicalVoice := (V + 1) mod 6;
         Exit;
       end;
     end;
@@ -709,7 +772,6 @@ var
 
 begin
   Sorted := TList<TMidiNote>.Create;
-  MelodyAt := TDictionary<Int64,Integer>.Create;
   Drums := TDictionary<Int64,Byte>.Create;
   Keys := TList<Int64>.Create;
   Patterns := TList<string>.Create;
@@ -728,33 +790,16 @@ begin
         Result := 0;
       end));
 
-    UnitsPerQuarter := Max(1, spnQuant.Value);
+    UnitsPerQuarter := 24;
     MeasureUnits := UnitsPerQuarter * 4;
     Log('v0.38: CC64 sustain does not extend physical-voice occupancy; MIDI key-off releases the voice.');
     Dropped := 0;
-    PreemptedCount := 0;
     MelodyInputCount := 0;
     MelodySameStartRemoved := 0;
     NextPhysicalVoice := 0;
-    NextChordVoice := 0;
     PercussionInputCount := 0;
     HarmonyAddedCount := 0;
     ExtCY51 := 0; ExtCY52 := 0; ExtCY53 := 0; ExtCY55 := 0; ExtCY59 := 0;
-
-    if chkRoleVoices.Checked then
-      for I := 0 to Sorted.Count - 1 do
-      begin
-        N := Sorted[I];
-        if IsPercussion(N) or IsBass(N) then Continue;
-        S := QuantizeTick(N.StartTick);
-        if not MelodyAt.TryGetValue(S, J) then
-          MelodyAt.Add(S, I)
-        else if ((N.Channel = 0) and (Sorted[J].Channel <> 0)) or
-                (((N.Channel = 0) = (Sorted[J].Channel = 0)) and
-                 ((N.Note > Sorted[J].Note) or
-                  ((N.Note = Sorted[J].Note) and (N.Velocity > Sorted[J].Velocity)))) then
-          MelodyAt[S] := I;
-      end;
 
     { Phase 1: quantize every MIDI note onto one common absolute CMU timeline. }
     for I := 0 to Sorted.Count - 1 do
@@ -785,36 +830,10 @@ begin
         Continue;
       end;
 
-      { CH2 is reserved for bass.  With role allocation ON, the preferred
-        lead uses CH1 and accompaniment uses CH3..CH6.  OFF retains a
-        five-voice rotation for all non-bass notes. }
-      if IsBass(N) then
-      begin
-        if VoiceFreeAt(1) <= S then Part := 1 else Part := -1;
-      end
-      else if chkRoleVoices.Checked then
-      begin
-        if MelodyAt.TryGetValue(S, J) and (J = I) then
-        begin
-          Part := 0;
-          if VoiceFreeAt(0) > S then
-          begin
-            J := Voices[0].Count - 1;
-            A := Voices[0][J];
-            A.EndPos := S;
-            Voices[0][J] := A;
-          end;
-        end
-        else
-          Part := ChooseChordVoice(S);
-      end
-      else
-        Part := ChoosePhysicalVoice(S);
-      if (Part < 0) and (not IsBass(N)) and chkMelodyPriority.Checked then
-      begin
-        Part := PreemptLowerNote(S, N.Note, chkRoleVoices.Checked);
-        if Part >= 0 then Inc(PreemptedCount);
-      end;
+      { v0.34: CH1..CH6 are six equivalent physical note voices.
+        Rotate through free physical voices instead of forcing each new melody
+        note back onto CH1.  Rests are not assigned here. }
+      Part := ChoosePhysicalVoice(S);
       if Part < 0 then
       begin
         Inc(Dropped);
@@ -832,15 +851,15 @@ begin
     { v0.34: Melody Collision Rescue is unnecessary with physical-voice
       allocation: quantized collisions use separate free voices. }
 
-    if chkRoleVoices.Checked then
-      Log('Role allocation ON: CH1=lead (MIDI CH1 preferred), CH2=Bass, CH3..CH6=accompaniment.')
-    else
-      Log('Role allocation OFF: CH2=Bass, other notes rotate over CH1 and CH3..CH6.');
+    { Phase 1b: Melody Priority no longer deletes Chord4.
+      v0.20-v0.23 reduced accompaniment density here, but that prevented the
+      CMU-800 from using its available six melodic voices.  Melody Priority now
+      protects the Melody voice/gate without throwing away valid harmony. }
+
     if chkMelodyPriority.Checked then
-      Log(Format('Melody Priority ON: %d lower notes shortened to retain higher notes.', [PreemptedCount]));
-    Log(Format('Voice counts: CH1=%d, CH2=%d, CH3=%d, CH4=%d, CH5=%d, CH6=%d, dropped=%d',
-      [Voices[0].Count, Voices[1].Count, Voices[2].Count, Voices[3].Count,
-       Voices[4].Count, Voices[5].Count, Dropped]));
+      Log(Format('6-Physical-Voice diagnostic: CH1=%d, CH2=%d, CH3=%d, CH4=%d, CH5=%d, CH6=%d, dropped=%d',
+        [Voices[0].Count, Voices[1].Count, Voices[2].Count, Voices[3].Count,
+         Voices[4].Count, Voices[5].Count, Dropped]));
 
     { Phase 2: serialize each voice independently.
       Clamp a note at the next note start so overlapping NOTE ON/OFF pairs cannot
@@ -862,7 +881,9 @@ begin
           EmitDuration(Part + 1, 0, A.StartPos - Cursor, 0, Cursor);
 
         Dur := Integer(A.EndPos - A.StartPos);
-        if chkVelocityGate.Checked then
+        if chkMelodyPriority.Checked and (Part = 0) then
+          Gate := Dur
+        else if chkVelocityGate.Checked then
           Gate := Max(1, (Dur * A.Velocity) div 127)
         else
           Gate := Max(1, (Dur * 7) div 8);
@@ -894,9 +915,10 @@ begin
     if ExtCY55 > 0 then Log(Format('Extended CY mapping: MIDI 55 (Splash Cymbal) -> CY : %d hits', [ExtCY55]));
     if ExtCY59 > 0 then Log(Format('Extended CY mapping: MIDI 59 (Ride Cymbal 2) -> CY : %d hits', [ExtCY59]));
     Log(Format('quantized hit positions=%d', [Keys.Count]));
-    { Harmony Boost is fixed OFF.
-      Its conversion-log output is intentionally disabled.
-      Log(Format('Harmony Boost: OFF, added=%d', [HarmonyAddedCount])); }
+    if chkHarmonyBoost.Checked then
+      Log(Format('Harmony Boost: ON, added=%d', [HarmonyAddedCount]))
+    else
+      Log('Harmony Boost: OFF');
     Cursor := 0;
     if chkNativeRhythmV3.Checked then
     begin
@@ -905,10 +927,10 @@ begin
         correct automatic arrangement of every source MIDI.
         CH0 = rhythm pattern bank, CH9 = rhythm table/order.
         Reference CMU DATA shows CH0 as an FD-delimited pattern bank.  Each pattern always consists of 16 records. At the canonical
-        24 steps/quarter this totals 96 ST (16 * 6); other settings scale ST.  CH9 starts with 75, then
-        contains only 1..75 with 00,00 parameters.
+        24 steps/quarter this totals 96 ST (16 * 6); the conversion clock is fixed at 120 BPM internally. CH9 contains
+        1-based pattern numbers with 00,00 parameters.
 
-        Build 4*StepsPerQuarter measures from MIDI percussion, quantize each hit
+        Build fixed 96-step synchronization blocks from tempo-mapped percussion, quantize each hit
         to one of 16 sixteenth-note slots, deduplicate identical patterns, write the
         unique patterns to CH0, and write the pattern-number sequence to CH9. }
       MaxSongPos := 0;
@@ -955,7 +977,7 @@ begin
           [Patterns.Count]);
 
       { CH0 pattern bank: always 16 records.  Their ST values are scaled
-        so the complete pattern length equals 4 * Steps/quarter. }
+        so each synchronization block totals 96 steps at the internal 120 BPM conversion clock. }
       for M := 0 to Patterns.Count - 1 do
       begin
         Sig := Patterns[M];
@@ -1006,13 +1028,14 @@ begin
       Tracks[I].Add($06);
     end;
 
-    Log(Format('CMU timeline: %d units/quarter, %d units/4-4 measure (Steps/quarter applied to note + rhythm data)', [UnitsPerQuarter, MeasureUnits]));
+    Log(Format('CMU timeline: %d units/quarter, %d units/4-4 measure at the internal 120 BPM conversion clock; MIDI tempo map applied to note + rhythm positions', [UnitsPerQuarter, MeasureUnits]));
     Log('v0.29b pitch mapping: CMU song note = MIDI note - 24.');
     if chkNativeRhythmV3.Checked then
       Log('v0.29b: v0.27 Intelligent 6-Voice allocation retained; Native Rhythm v4 default ON.')
     else
       Log('v0.29b: Native Rhythm v4 is OFF; compatibility rhythm path is used.');
-    if chkVelocityGate.Checked then Log('Velocity GATE: ON for CH1-CH6.');
+    if chkMelodyPriority.Checked then
+      Log('Melody Priority: Melody full gate; Chord4 suppressed during Melody.');
     if Dropped > 0 then
       Log(Format('%d notes exceeded available CMU voices and were suppressed',
         [Dropped]));
@@ -1024,7 +1047,6 @@ begin
     Keys.Free;
     Drums.Free;
     Sorted.Free;
-    MelodyAt.Free;
   end;
 end;
 
@@ -1066,11 +1088,6 @@ begin
     Log(Format('Saved raw data: %d bytes; load address $%.4x',[Length(OutB),BaseAddress]));
 end;
 
-procedure TMainForm.btnResetStepsClick(Sender: TObject);
-begin
-  spnQuant.Value := 44;
-end;
-
 procedure TMainForm.btnConvertClick(Sender:TObject);
 var Tracks:TObjectList<TTrackData>; I,Code:Integer; Base:Cardinal;
 begin
@@ -1079,7 +1096,7 @@ begin
     if not FileExists(edtInput.Text) then raise EFileNotFoundException.Create('Select an input MIDI file');
     if edtOutput.Text='' then raise Exception.Create('Select an output file');
     Val('$'+Trim(edtBase.Text),Base,Code); if (Code<>0) or (Base>$FFFF) then raise Exception.Create('Invalid hexadecimal load address');
-    ParseMidi(edtInput.Text); Tracks:=TObjectList<TTrackData>.Create(True);
+    ParseMidi(edtInput.Text); RefreshTempoPreview; Tracks:=TObjectList<TTrackData>.Create(True);
     try for I:=0 to 9 do Tracks.Add(TTrackData.Create); BuildTracks(Tracks); SaveCMUData(edtOutput.Text,Tracks,Word(Base));
     finally Tracks.Free; end;
     Log('Conversion completed.');
