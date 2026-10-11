@@ -1,7 +1,7 @@
 object MainForm: TMainForm
   Left = 0
   Top = 0
-  Caption = 'CMU-800 MIDI Converter v1.08c'
+  Caption = 'CMU-800 MIDI Converter v1.15'
   ClientHeight = 650
   ClientWidth = 920
   Color = 16119285
@@ -55,7 +55,7 @@ object MainForm: TMainForm
       Width = 58
       Height = 20
       Alignment = taRightJustify
-      Caption = 'v1.08c'
+      Caption = 'v1.15'
       Font.Charset = SHIFTJIS_CHARSET
       Font.Color = 7368816
       Font.Height = -15
@@ -182,30 +182,6 @@ object MainForm: TMainForm
         MaxLength = 4
         TabOrder = 4
       end
-      object lblSpeed: TLabel
-        Left = 158
-        Top = 182
-        Width = 133
-        Height = 20
-        Caption = '演奏速度 (%)'
-        Font.Charset = SHIFTJIS_CHARSET
-        Font.Color = 4210752
-        Font.Height = -14
-        Font.Name = 'Segoe UI'
-        Font.Style = []
-        ParentFont = False
-      end
-      object spnSpeed: TSpinEdit
-        Left = 158
-        Top = 206
-        Width = 92
-        Height = 28
-        MaxValue = 200
-        MinValue = 1
-        TabOrder = 5
-        Value = 100
-        OnChange = TimingChange
-      end
       object lblHint: TLabel
         Left = 18
         Top = 240
@@ -237,22 +213,36 @@ object MainForm: TMainForm
       Font.Style = []
       ParentFont = False
       TabOrder = 1
-      object chkVelocityGate: TCheckBox
+      object lblVelocityGate: TLabel
         Left = 18
         Top = 39
-        Width = 265
+        Width = 170
         Height = 24
-        Caption = 'Velocity を GATE長へ反映'
-        TabOrder = 0
-        Checked = True
-        State = cbChecked
+        AutoSize = False
+        Caption = 'Velocity → GATE'
+        Hint = 'MIDI Velocityを発音時間へ反映します。自動は発音時間保持率でON/OFFを推定します。'
+        ShowHint = True
       end
-      object chkHarmonyBoost: TCheckBox
+      object cmbVelocityGate: TComboBox
+        Left = 194
+        Top = 35
+        Width = 89
+        Height = 29
+        Style = csDropDownList
+        ItemIndex = 0
+        TabOrder = 0
+        Text = '自動'
+        Items.Strings = (
+          '自動'
+          'ON'
+          'OFF')
+      end
+      object chkChordSeparation: TCheckBox
         Left = 18
         Top = 72
         Width = 265
         Height = 42
-        Caption = 'ハーモニーを補強する'#13#10'（空きCHORDへ1oct下を追加）'
+        Caption = 'CHORD分離'
         TabOrder = 1
         WordWrap = True
       end
@@ -378,7 +368,7 @@ object MainForm: TMainForm
       Width = 168
       Height = 17
       Alignment = taRightJustify
-      Caption = 'CMU-800 MIDI Converter v1.08c'
+      Caption = 'CMU-800 MIDI Converter v1.15'
       Font.Charset = SHIFTJIS_CHARSET
       Font.Color = 8421504
       Font.Height = -12

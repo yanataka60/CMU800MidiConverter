@@ -1,61 +1,50 @@
-program TimingTests;
-
+﻿program TimingTests;
 {$APPTYPE CONSOLE}
-
-uses
-  System.SysUtils,
-  MidiTiming in 'MidiTiming.pas';
-
+uses System.SysUtils, MidiTiming in 'MidiTiming.pas';
 var Timing: TMidiTiming; Checks: Integer;
-
 procedure Check(Tick, Expected: Int64);
 var Actual: Int64;
 begin
   Actual := Timing.TickToStep(Tick);
   if Actual <> Expected then
-    raise Exception.CreateFmt('tick %d: expected %d, actual %d',
-      [Tick, Expected, Actual]);
+    raise Exception.CreateFmt('tick %d: expected %d, actual %d', [Tick, Expected, Actual]);
   Inc(Checks);
 end;
-
 begin
   Timing := TMidiTiming.Create;
   try
     try
-      Timing.Prepare(480,100);
-      Check(0,0); Check(160,8); Check(320,16); Check(480,24);
-      { Tempo-only events can be added before or after note-track parsing. }
-      Timing.Clear;
-      Timing.AddTempo(960,500000);
-      Timing.AddTempo(480,1000000);
-      Timing.Prepare(480,100);
-      Check(480,24); Check(720,48); Check(960,72); Check(1440,96);
-      { Note 240..720 crosses the tempo change: start=12, end=48. }
-      Check(240,12);
-      Timing.Prepare(480,200);
-      Check(480,12); Check(960,36); Check(1440,48);
-      Timing.Prepare(480,50);
-      Check(480,48); Check(960,144);
-      Timing.Clear;
-      Timing.AddTempo(0,1000000);
-      Timing.AddTempo(0,250000);
-      Timing.Prepare(480,100);
-      Check(480,12);
-      Timing.Clear;
-      Timing.AddTempo(100,750000);
-      Timing.Prepare(1000,100);
-      Check(100,2); Check(1000,35); Check(1000000,35999);
-      Timing.Clear;
-      Timing.Prepare(960,1);
-      Check(960,2400);
-      Timing.Clear;
-      Timing.Prepare(48,100);
-      Check(16,8); Check(48,24);
-      Writeln(Checks, ' timing checks passed.');
-    except
-      on E: Exception do begin Writeln(E.Message); ExitCode := 1; end;
-    end;
-  finally
-    Timing.Free;
-  end;
+      { No explicit tempo: one 4/4 measure is 96 steps. }
+      Timing.Prepare(480); Check(480,24); Check(1920,96);
+      { A single 90 BPM event changes no durations. }
+      Timing.Clear; Timing.AddTempo(0,666667);
+      Timing.Prepare(480); Check(480,24); Check(1920,96);
+      { A single tempo later in the file is still the global reference. }
+      Timing.Clear; Timing.AddTempo(960,1000000);
+      Timing.Prepare(480); Check(480,24); Check(1920,96);
+      { 120 -> 160 BPM: following measure 72 steps. }
+      Timing.Clear; Timing.AddTempo(0,500000); Timing.AddTempo(1920,375000);
+      Timing.Prepare(480); Check(1920,96); Check(3840,168);
+      { 90 -> 180 BPM: following measure 48 steps. }
+      Timing.Clear; Timing.AddTempo(0,666666); Timing.AddTempo(1920,333333);
+      Timing.Prepare(480); Check(1920,96); Check(3840,144);
+      { A change in the middle of a measure is integrated by segment. }
+      Timing.Clear; Timing.AddTempo(0,500000); Timing.AddTempo(960,1000000);
+      Timing.Prepare(480); Check(960,48); Check(1920,144);
+      { Identical repeated tempos leave every measure at 96 steps. }
+      Timing.Clear; Timing.AddTempo(0,666667); Timing.AddTempo(1920,666667);
+      Timing.Prepare(480); Check(1920,96); Check(3840,192);
+      { Chronological order matters, not track parse order. }
+      Timing.Clear; Timing.AddTempo(1920,375000); Timing.AddTempo(0,500000);
+      Timing.Prepare(480); Check(3840,168);
+      { Same tick: final event wins; prepare is repeatable. }
+      Timing.Clear; Timing.AddTempo(0,500000); Timing.AddTempo(0,250000);
+      Timing.Prepare(480); Check(1920,96);
+      Timing.Prepare(480); Check(1920,96);
+      { First event later, followed by a real change. }
+      Timing.Clear; Timing.AddTempo(960,500000); Timing.AddTempo(1920,1000000);
+      Timing.Prepare(480); Check(1920,96); Check(3840,288);
+      Writeln(Checks, ' relative tempo timing checks passed.');
+    except on E: Exception do begin Writeln(E.Message); ExitCode := 1; end; end;
+  finally Timing.Free; end;
 end.
